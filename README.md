@@ -39,7 +39,7 @@ Training gmm with crf:
 
 ```shell
 # way 1
-python train_gmm.py --dev_id 0 --batch_size 32 --eval_bsize 32 --atten_flag --bi --use_crf --root_path {your data dir} --downsample_rate {your downsample_rate}
+python train_gmm.py --dev_id 7 --batch_size 32 --eval_bsize 32 --atten_flag --bi --use_crf --root_path /home_nfs/haitao/data/compile_memory_XML/GraphMM-Master/data --downsample_rate 0.5
 
 # way 2
 # first modify your configuration and hyper-parameter search space, then run following command
@@ -73,6 +73,8 @@ python test.py --atten_flag --bi --root_path {your data dir} --eval_bsize 256 --
 
 The hyper parameters in `config.py` are tuned for Tencent dataset with 64K trajectories, and may not be suitable for other settings.
 
+
+python train_gmm_fed.py --dev_id 5 --batch_size 32 --eval_bsize 32 --atten_flag --bi --use_crf --root_path /home_nfs/haitao/data/compile_memory_XML/GraphMM-Master/data --downsample_rate 0.5
 
 
 ## Citations

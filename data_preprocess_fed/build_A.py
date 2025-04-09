@@ -1,9 +1,11 @@
 import pickle
 import torch
+import sys
 """
     build adjacency matrix of road_graph
 """
-data_path = '../data/'
+city = sys.argv[1]
+data_path = '../data/' + city + '/'
 road_graph = pickle.load(open(data_path + 'road_graph.pkl', 'rb'))
 n = road_graph.number_of_nodes()
 A = torch.eye(n)

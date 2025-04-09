@@ -124,7 +124,7 @@ class DataProcess():
             assert(len(i) >= 16 and len(i) <= 40)
         return finalLs
 
-    def splitData(self, output_dir, train_rate=0.7, val_rate=0.1):
+    def splitData(self, output_dir, train_rate=0.7, val_rate=0.2):
         """
             split original data to train, valid and test datasets
         """
@@ -137,8 +137,7 @@ class DataProcess():
         test_data_dir = output_dir + 'test_data/'
         create_dir(test_data_dir)
         num_sample = len(self.traces_ls)
-        train_size, val_size = int(num_sample * train_rate), int(num_sample *
-                                                                 val_rate)
+        train_size, val_size = int(num_sample * train_rate), int(num_sample * val_rate)
         idxs = list(range(num_sample))
         random.shuffle(idxs)
         train_idxs = idxs[:train_size]
@@ -177,6 +176,16 @@ class DataProcess():
                 for traces in tmptrace:
                     for trace in traces:
                         f.write(trace)
+
+        # all_trace = [train_trace, test_trace]
+        # all_trace_name = ['train_trace.txt', 'test_trace.txt']
+        # for i in range(2):
+        #     tmptrace = all_trace[i]
+        #     path = output_dir + 'data_split/' + all_trace_name[i]
+        #     with open(path, 'w') as f:
+        #         for traces in tmptrace:
+        #             for trace in traces:
+        #                 f.write(trace)
 
 
 

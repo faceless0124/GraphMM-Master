@@ -72,6 +72,48 @@ class GMM(nn.Module):
             mask = (tgt_roads.view(-1) != -1)
             loss = F.cross_entropy(emissions.view(-1, self.target_size)[mask], tgt_roads.view(-1)[mask])
         return loss
+    # def forward(self, grid_traces, tgt_roads, traces_gps, traces_lens,
+    #             road_lens, gdata, sample_Idx, tf_ratio):
+    #     """
+    #     grid_traces: id of traj points, (batch_size, seq_len)
+    #     tgt_roads: ground truth, (batch_size, seq_len1)
+    #     traces_gps: gps location of traj points, (batch_size, seq_len, 2)
+    #     sample_Idx: (batch_size, seq_len)
+    #     traces_lens, road_lens: list, real length of traj/ground truth
+    #     """
+    #     full_road_emb, full_grid_emb = self.get_emb(gdata)
+    #
+    #     # 处理B中的-1，将其暂时替换为0
+    #     sample_Idx_masked = torch.where(sample_Idx == -1, 0, sample_Idx)
+    #
+    #     # 使用高级索引
+    #     result = tgt_roads[torch.arange(tgt_roads.size(0)).unsqueeze(1), sample_Idx_masked]
+    #
+    #     # 将结果中原本应该是-1的位置设置为-1
+    #     result[sample_Idx == -1] = -1
+    #
+    #     result = result.to(self.device)
+    #
+    #     emissions = self.get_probs(grid_traces=grid_traces,
+    #                                tgt_roads=result,
+    #                                traces_gps=traces_gps,
+    #                                trace_lens=traces_lens,
+    #                                road_lens=road_lens,
+    #                                tf_ratio=tf_ratio,
+    #                                full_grid_emb=full_grid_emb,
+    #                                gdata=gdata,
+    #                                sample_Idx=sample_Idx,
+    #                                full_road_emb=full_road_emb)
+    #     if self.use_crf:
+    #         tgt_mask = torch.zeros(emissions.shape[0], int(max(road_lens)))
+    #         for i in range(len(road_lens)):
+    #             tgt_mask[i][:road_lens[i]] = 1.
+    #         tgt_mask = tgt_mask.bool().to(self.device)
+    #         loss = -self.crf(emissions, result, full_road_emb.detach(), gdata.A_list, tgt_mask)
+    #     else:
+    #         mask = (result.view(-1) != -1)
+    #         loss = F.cross_entropy(emissions.view(-1, self.target_size)[mask], result.view(-1)[mask])
+    #     return loss
 
     def infer(self, grid_traces, traces_gps, traces_lens, road_lens,
               sample_Idx, gdata, tf_ratio):
@@ -125,11 +167,13 @@ class GMM(nn.Module):
         decode max_trace_lens times for tgt
         return (batch_size, max_road_lens, num_roads)
         """
-        if tgt_roads is not None:
-            B, max_RL = tgt_roads.shape
-        else:
-            B = grid_traces.shape[0]
-            max_RL = int(max(road_lens))
+        # if tgt_roads is not None:
+        #     B, max_RL = tgt_roads.shape
+        # else:
+        #     B = grid_traces.shape[0]
+        #     max_RL = int(max(road_lens))
+        B = grid_traces.shape[0]
+        max_RL = int(max(road_lens))
 
         rnn_input = full_grid_emb[grid_traces]
         # concat rnn ouput with sampleIdx and traces_gps
@@ -138,7 +182,7 @@ class GMM(nn.Module):
         # start encode
         encoder_outputs, hiddens = self.seq2seq.encode(rnn_input, trace_lens)
         # start decode
-        probs = torch.zeros(B, max_RL, gdata.num_roads).to(self.device)
+        probs = torch.zeros(B, max_RL, gdata.num_roads).to(self.device) # (32, 39, 8533)
         inputs = torch.zeros(B, 1, self.seq2seq.hidden_size).to(self.device)
         attn_mask = None
         if self.atten_flag:

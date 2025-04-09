@@ -3,9 +3,10 @@ import pickle
 import sys
 from utils import create_dir
 
-downsample_rate = sys.argv[1]
-path = '../data/'
-data_path = path + 'data' + downsample_rate + '/'
+city = sys.argv[1]
+output_path = sys.argv[2]
+path = '../data/' + city + '/'
+data_path = path + output_path + '/'
 pkl_path = data_path + 'used_pkl/'
 create_dir(pkl_path)
 

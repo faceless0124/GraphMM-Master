@@ -2,16 +2,18 @@ import networkx as nx
 import torch
 import pickle
 import sys
+
 from utils import create_dir
+
 """
     build dict for road and traceid and select singleton grid
 """
-downsample_rate = sys.argv[1]
-path = '../data/'
-data_path = path + 'data' + downsample_rate + '/'
+city = sys.argv[1]
+output_path = sys.argv[2]
+path = '../data/'+city+'/'
+data_path = path + output_path + '/'
 pkl_path = data_path + 'used_pkl/'
 create_dir(pkl_path)
-
 
 road_graph = pickle.load(open(path + 'road_graph.pkl', 'rb'))
 trace_graph = nx.read_gml(data_path + 'trace_graph.gml', destringizer=int)
@@ -41,4 +43,3 @@ torch.save(singleton_grid_loction,
 torch.save(singleton_grid_mask,
            data_path + 'trace_graph_pt/singleton_grid_mask.pt')
 torch.save(map_matrix, data_path + 'trace_graph_pt/map_matrix.pt')
-# print(map_matrix)

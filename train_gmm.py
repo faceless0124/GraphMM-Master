@@ -14,6 +14,7 @@ from sklearn.metrics import accuracy_score
 import os.path as osp
 from copy import deepcopy
 from data_preprocess.utils import create_dir
+import time
 
 def train(model, train_iter, optimizer, device, gdata, args):
     model.train()
@@ -24,11 +25,18 @@ def train(model, train_iter, optimizer, device, gdata, args):
         traces_gps = data[2].to(device)
         sample_Idx = data[3].to(device)
         traces_lens, road_lens = data[4], data[5]
+
+        # 根据sample_idx处理tgt_road
+        sample_Idx_masked = torch.where(sample_Idx == -1, 0, sample_Idx).cpu()
+        result = tgt_roads[torch.arange(tgt_roads.size(0)).unsqueeze(1), sample_Idx_masked]
+        result[sample_Idx == -1] = -1
+        result = result.to(device)
+
         loss = model(grid_traces=grid_traces,
                      traces_gps=traces_gps,
                      traces_lens=traces_lens,
-                     road_lens=road_lens,
-                     tgt_roads=tgt_roads,
+                     road_lens=traces_lens,
+                     tgt_roads=result,
                      gdata=gdata,
                      sample_Idx=sample_Idx,
                      tf_ratio=args['tf_ratio'])
@@ -43,9 +51,54 @@ def train(model, train_iter, optimizer, device, gdata, args):
     return train_l_sum / count
 
 
-def evaluate(model, eval_iter, device, gdata, use_crf):
+# def evaluate(model, eval_iter, device, gdata, use_crf):
+#     model.eval()
+#     eval_acc_sum, count = 0., 0
+#     with torch.no_grad():
+#         for data in tqdm(eval_iter):
+#             grid_traces = data[0].to(device)
+#             tgt_roads = data[1]
+#             traces_gps = data[2].to(device)
+#             sample_Idx = data[3].to(device)
+#             traces_lens, road_lens = data[4], data[5]
+#             infer_seq = model.infer(grid_traces=grid_traces,
+#                                     traces_gps=traces_gps,
+#                                     traces_lens=traces_lens,
+#                                     road_lens=road_lens,
+#                                     gdata=gdata,
+#                                     sample_Idx=sample_Idx,
+#                                     tf_ratio=0.)
+#             if use_crf:
+#                 infer_seq = np.array(infer_seq).flatten()
+#             else:
+#                 infer_seq = infer_seq.argmax(dim=-1).detach().cpu().numpy().flatten()
+#             tgt_roads = tgt_roads.flatten().numpy()
+#             mask = (tgt_roads != -1)
+#             acc = accuracy_score(infer_seq[mask], tgt_roads[mask])
+#             eval_acc_sum += acc
+#             count += 1
+#     return eval_acc_sum / count, eval_acc_sum / count
+
+def longest_common_subsequence(seq1, seq2):
+    # 创建一个二维数组，用于存储两个序列的LCS长度
+    lcs_matrix = [[0 for _ in range(len(seq2)+1)] for _ in range(len(seq1)+1)]
+
+    # 动态规划填充这个矩阵
+    for i in range(1, len(seq1)+1):
+        for j in range(1, len(seq2)+1):
+            if seq1[i-1] == seq2[j-1]:
+                lcs_matrix[i][j] = lcs_matrix[i-1][j-1] + 1
+            else:
+                lcs_matrix[i][j] = max(lcs_matrix[i-1][j], lcs_matrix[i][j-1])
+
+    # 矩阵的最后一个元素包含了LCS的长度
+    return lcs_matrix[-1][-1]
+
+def evaluate(model, eval_iter, device, gdata, use_crf, is_rlcs):
     model.eval()
     eval_acc_sum, count = 0., 0
+    eval_rlcs_sum = 0.
+    all_time = 0.
     with torch.no_grad():
         for data in tqdm(eval_iter):
             grid_traces = data[0].to(device)
@@ -53,23 +106,104 @@ def evaluate(model, eval_iter, device, gdata, use_crf):
             traces_gps = data[2].to(device)
             sample_Idx = data[3].to(device)
             traces_lens, road_lens = data[4], data[5]
-            infer_seq = model.infer(grid_traces=grid_traces,
-                                    traces_gps=traces_gps,
-                                    traces_lens=traces_lens,
-                                    road_lens=road_lens,
+
+            updated_traces_lens = torch.zeros(len(traces_lens), dtype=int)
+            updated_roads_lens = torch.zeros(len(road_lens), dtype=int)
+
+            # 根据sample_idx处理tgt_road
+            sample_Idx_masked = torch.where(sample_Idx == -1, 0, sample_Idx).cpu()
+            result = tgt_roads[torch.arange(tgt_roads.size(0)).unsqueeze(1), sample_Idx_masked]
+            result[sample_Idx == -1] = -1
+            result = result.to(device)
+            match_interval = 4
+            # 初始化用于收集infer_seq的列表
+            collected_infer_seq = [[] for _ in range(0, grid_traces.size(0))]
+            last = 0
+
+            for i in range(match_interval - 1, grid_traces.size(1) - match_interval + 1, match_interval):
+                last = i
+                for j in range(len(traces_lens)):
+                    updated_traces_lens[j] = i + 1
+                    updated_roads_lens[j] = i + 1
+                # incremental
+                start_time = time.time()
+                infer_seq = model.infer(grid_traces=grid_traces[:, :i + 1],
+                                        traces_gps=traces_gps[:, :i + 1],
+                                        traces_lens=updated_traces_lens,
+                                        road_lens=updated_roads_lens,
+                                        gdata=gdata,
+                                        sample_Idx=sample_Idx[:, :i + 1],
+                                        tf_ratio=0.)
+                end_time = time.time()
+                all_time += end_time - start_time
+                # 收集infer_seq中每个元素的最后一个元素
+                if use_crf:
+                    for i, seq in enumerate(infer_seq):
+                        collected_infer_seq[i].extend(seq[-match_interval:])
+                else:
+                    collected_infer_seq.extend([seq.argmax(dim=-1).detach().cpu().numpy()[-1] for seq in infer_seq])
+
+            for j in range(len(traces_lens)):
+                updated_traces_lens[j] = grid_traces.size(1)-last-1
+                updated_roads_lens[j] = grid_traces.size(1)-last-1
+            start_time = time.time()
+            infer_seq = model.infer(grid_traces=grid_traces[:, last + 1:],
+                                    traces_gps=traces_gps[:, last + 1:],
+                                    traces_lens=updated_traces_lens,
+                                    road_lens=updated_roads_lens,
                                     gdata=gdata,
-                                    sample_Idx=sample_Idx,
+                                    sample_Idx=sample_Idx[:, last + 1:],
                                     tf_ratio=0.)
+            end_time = time.time()
+            all_time += end_time - start_time
+            # 收集infer_seq中每个元素的最后一个元素
             if use_crf:
-                infer_seq = np.array(infer_seq).flatten()
+                for i, seq in enumerate(infer_seq):
+                    collected_infer_seq[i].extend(seq)
             else:
-                infer_seq = infer_seq.argmax(dim=-1).detach().cpu().numpy().flatten()
-            tgt_roads = tgt_roads.flatten().numpy()
-            mask = (tgt_roads != -1)
-            acc = accuracy_score(infer_seq[mask], tgt_roads[mask])
-            eval_acc_sum += acc
+                collected_infer_seq.extend([seq.argmax(dim=-1).detach().cpu().numpy()[-1] for seq in infer_seq])
+
+            infer_seqs = np.array(collected_infer_seq)
+            result_seqs = result.cpu().numpy()
+            r_lcs_values = []
+            acc_values = []
+            for infer_seq, result_seq in zip(infer_seqs, result_seqs):
+                # 应用mask以过滤掉值为-1的元素
+                mask = result_seq != -1
+
+                filtered_infer_seq = infer_seq[mask]
+                filtered_result_seq = result_seq[mask]
+
+                if is_rlcs:
+                    lcs_length = longest_common_subsequence(filtered_infer_seq, filtered_result_seq)
+                else:
+                    lcs_length = 0
+
+                r_lcs_values.append(lcs_length / len(filtered_infer_seq))
+
+                acc_values.append((filtered_infer_seq == filtered_result_seq).sum() / len(filtered_infer_seq))
+
+
+            # 计算平均R-LCS
+            average_r_lcs = sum(r_lcs_values) / len(r_lcs_values)
+            eval_rlcs_sum += average_r_lcs
+            average_acc = sum(acc_values) / len(acc_values)
+            eval_acc_sum += average_acc
+
+
+            # if use_crf:
+            #     infer_seq_combined = np.array(collected_infer_seq).flatten()
+            # else:
+            #     infer_seq_combined = np.array(collected_infer_seq)
+            #
+            # result = result.flatten().cpu().numpy()
+            # mask = (result != -1)
+            # acc = accuracy_score(infer_seq_combined[mask], result[mask])
+            # eval_acc_sum += acc
             count += 1
-    return eval_acc_sum / count
+    print("all time: {}".format(all_time))
+
+    return eval_acc_sum / count, eval_rlcs_sum / count
 
 
 def main(args):
@@ -80,7 +214,11 @@ def main(args):
         args['neg_nums'], args['use_crf'], args['wd'])
     root_path = args['root_path']
 
-    data_path = osp.join(args['root_path'], 'data'+str(args['downsample_rate']) + '/')
+    if args['downsample_rate'] == 1.0:
+        downsample_rate = 1
+    else:
+        downsample_rate = args['downsample_rate']
+    data_path = osp.join(args['root_path'], 'data'+str(downsample_rate) + '/')
     trainset = MyDataset(root_path=root_path, path=data_path, name="train")
     valset = MyDataset(root_path=root_path, path=data_path, name="val")
     testset = MyDataset(root_path=root_path, path=data_path, name="test")
@@ -112,7 +250,8 @@ def main(args):
                 atten_flag=args['atten_flag'],
                 drop_prob=args['drop_prob'])
     model = model.to(device)
-    best_acc, best_model = 0., None
+    best_acc = 0
+    best_model = None
     print("loading model finished!")
     optimizer = optim.AdamW(params=model.parameters(),
                             lr=args['lr'],
@@ -120,19 +259,21 @@ def main(args):
     # start training
     for e in range(args['epochs']):
         print(f"================Epoch: {e + 1}================")
+        start_time = time.time()
         train_avg_loss = train(model, train_iter, optimizer, device, gdata, args)
-        val_acc = evaluate(model, val_iter, device, gdata, args['use_crf'])
+        end_time = time.time()
+        print("train time: {}".format(end_time - start_time))
+        val_acc, val_rlcs = evaluate(model, val_iter, device, gdata, args['use_crf'], is_rlcs=False)
         # choose model based on val_acc
         if best_acc < val_acc:
             best_model = deepcopy(model)
             best_acc = val_acc
-        print("Epoch {}: train_avg_loss {} val_avg_acc: {}".format(e + 1, train_avg_loss, val_acc))
+        print("Epoch {}: train_avg_loss {} val_avg_acc: {} val_avg_rlcs: {}".format(e + 1, train_avg_loss, val_acc, val_rlcs))
         nni.report_intermediate_result(val_acc)
 
-
-    test_acc = evaluate(best_model, test_iter, device, gdata, args['use_crf'])
+    test_acc, test_rlcs = evaluate(best_model, test_iter, device, gdata, args['use_crf'], is_rlcs=True)
     nni.report_final_result(test_acc)
-    print(f"test_avg_acc: {test_acc:.4f}")
+    print(f"test_avg_acc: {test_acc:.4f} test_avg_rlcs: {test_rlcs:.4f}")
     torch.save(best_model.state_dict(), save_path)
 
 

@@ -6,7 +6,7 @@ def get_params():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--eval_bsize", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=200, help='max epochs')
-    parser.add_argument("--lr", type=float, default=0.0001, help='learning rate')
+    parser.add_argument("--lr", type=float, default=0.001, help='learning rate')
     parser.add_argument("--root_path",
                         type=str,
                         default="./data", help='the absolute path road.txt in')

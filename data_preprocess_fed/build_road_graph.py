@@ -2,14 +2,15 @@ import re
 import networkx as nx
 import torch
 import pickle
+import sys
 from utils import gps2grid, get_border, create_dir
 
-MIN_LAT, MIN_LNG, MAX_LAT, MAX_LNG = get_border('../data/road.txt')
-GRID_SIZE = 50
+city = sys.argv[1]
+MIN_LAT, MIN_LNG, MAX_LAT, MAX_LNG = get_border('../data/' + city + '_road.txt')
 
 def read_road(path: str) -> dict:
     """
-        read road.txt
+        read beijing_road.txt
     """
     link_nodes_dict = {}
     cr = re.compile(r"(\d*)\t(.*?)\t(.*?)\t(.*?)\t(.*?)\t(.*?)\t(.*?)\|(.*)")
@@ -59,9 +60,10 @@ def construct_road_graph(roads: dict):
             neighbor_link_id, __, _ = neighbor
             if int(neighbor_link_id) not in link_dict:
                 continue
-            my_id, neighbor_id = int(link_id), int(neighbor_link_id)   
+            my_id, neighbor_id = int(link_id), int(neighbor_link_id)
             graph.add_edge(neighbor_id, my_id)
     return graph
+
 
 def build_x_edge_index(G):
     """
@@ -69,7 +71,7 @@ def build_x_edge_index(G):
     """
     x_feat = []
     num = G.number_of_nodes()
-    
+
     for i in range(num):
         tmp_feat = []
         self_grid = []
@@ -83,25 +85,27 @@ def build_x_edge_index(G):
         max_lat, max_lng = max(self_feat['lat1'], self_feat['lat2']), max(self_feat['lng1'], self_feat['lng2'])
 
         xy_ls = []
-        xy_ls += [(min_x, min_y), (max_x, max_y), ((min_x+max_x)//2, min_y), ((min_x+max_x)//2, max_y)]
-        xy_ls += [(max_x, min_y), (min_x, max_y), (min_x, (min_y+max_y)//2), (max_x, (min_y+max_y)//2)]
+        xy_ls += [(min_x, min_y), (max_x, max_y), ((min_x + max_x) // 2, min_y), ((min_x + max_x) // 2, max_y)]
+        xy_ls += [(max_x, min_y), (min_x, max_y), (min_x, (min_y + max_y) // 2), (max_x, (min_y + max_y) // 2)]
 
         for xy in xy_ls:
-            x,y = xy
+            x, y = xy
             min_dis = 1000
             for self_xy in self_grid:
                 sx, sy = self_xy
-                min_dis = min(min_dis, abs(sx-x)+abs(sy-y))
+                min_dis = min(min_dis, abs(sx - x) + abs(sy - y))
 
-            tmp_feat += [x,y,min_dis]
-        
+            tmp_feat += [x, y, min_dis]
+
         tmp_feat += [min_lat, min_lng, max_lat, max_lng]
         G.nodes[i]['x1'], G.nodes[i]['x2'], G.nodes[i]['y1'], G.nodes[i]['y2'] = min_x, max_x, min_y, max_y
         x_feat.append(tmp_feat)
 
     edge_index = [[], []]
     for i in G.edges():
-        # assert(int(i[0]) != int(i[1]))
+        # assert (int(i[0]) != int(i[1]))
+        if int(i[0]) == int(i[1]):
+            print(i[0], i[1])
         edge_index[0].append(int(i[0]))
         edge_index[1].append(int(i[1]))
 
@@ -114,11 +118,11 @@ def build_x_edge_index(G):
 
 
 if __name__ == '__main__':
-    r = read_road('../data/road.txt')
+    r = read_road('../data/' + city + '_road.txt')
     g = construct_road_graph(r)
-    data_path = '../data/'
+    data_path = '../data/' + city + '/'
     x, edge_index, G = build_x_edge_index(g)
-    pickle.dump(G, open(data_path+'road_graph.pkl', 'wb'))
-    create_dir(data_path+'road_graph_pt')
-    torch.save(x, data_path+'road_graph_pt/x.pt')
-    torch.save(edge_index, data_path+'road_graph_pt/edge_index.pt')
+    pickle.dump(G, open(data_path + 'road_graph.pkl', 'wb'))
+    create_dir(data_path + 'road_graph_pt')
+    torch.save(x, data_path + 'road_graph_pt/x.pt')
+    torch.save(edge_index, data_path + 'road_graph_pt/edge_index.pt')
